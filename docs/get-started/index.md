@@ -15,18 +15,18 @@ import laser.generic
 laser.generic.compute(...)
 ```
 
-## LASER SIR Example – Annotated
+## Create and run a simulation
 
-This example demonstrates how to construct and run a simple **SIR** model in LASER using the `laser-core` and `laser-generic` libraries. It features:
+LASER is designed to be modular and flexible to accommodate a variety of modeling needs. The example below demonstrates how to construct and run a simple **SIR** model in LASER using the `laser-core` and `laser-generic` libraries.
+It features:
 
 - One spatial node (`1x1` grid)
 - Poisson-distributed infectious periods
 - Correct S → I → R transitions
 - CSV output and plotting
 
----
 
-### 1. Import Dependencies
+### 1. Import dependencies
 
 ```python
 import numpy as np
@@ -39,11 +39,10 @@ from laser.generic.model import Model
 from laser.generic import SIR
 ```
 
----
-
-### 2. Define Parameters
+### 2. Define the parameters
 
 We configure simulation-wide parameters using a `PropertySet`, including:
+
 - Simulation length (`nticks`)
 - Infection rate (`beta`)
 - Average infectious period
@@ -61,9 +60,7 @@ params = PropertySet({
 rng = np.random.default_rng(params.seed)
 ```
 
----
-
-### 3. Define Scenario (Single Patch)
+### 3. Define the scenario (single patch)
 
 Always use the `grid()` utility to create a scenario so that it's compliant with expectations downstream in the Model class. Here we use it even to create a 1x1 spatial node ("patch") with 50,000 people. The population is then split into S, I, and R:
 
@@ -80,9 +77,7 @@ scenario["S"] = scenario["population"] - params.initial_infected
 scenario["R"] = 0
 ```
 
----
-
-### 4. Build Model
+### 4. Build the model
 
 Initialize the `Model` using the scenario and parameters. The `.people` frame is automatically constructed with internal state fields.
 
@@ -91,9 +86,7 @@ model = Model(scenario, params)
 people = model.people  # Auto-generated LaserFrame for agents
 ```
 
----
-
-### 5. Infectious Duration Distribution
+### 5. Configure the infectious duration distribution
 
 We define a **Numba-wrapped Poisson distribution** for the infectious period using LASER’s distribution API.
 
@@ -101,37 +94,34 @@ We define a **Numba-wrapped Poisson distribution** for the infectious period usi
 infectious_duration = poisson(params.mean_infectious_period)
 ```
 
----
-
-### 6. Attach Components
+### 6. Attach components
 
 LASER models are built from **modular components**, each responsible for a specific part of the disease process. These components are called **once per timestep** in the order provided.
 
 The standard **SIR progression** involves:
 
-1. Tracking the number of **Susceptible** agents (S)
-2. Modeling the **Transmission** (S → I)
-3. Modeling **Infectiousness and Recovery** (I → R)
-4. Tracking the **Recovered** population (R)
+-  Tracking the number of susceptible agents (S)
+-  Modeling the transmission (S → I)
+-  Modeling infectiousness and recovery** (I → R)
+-  Tracking the recovered population (R)
 
 We attach the components in this exact order to ensure state updates and population counts are handled consistently.
-
----
 
 #### `SIR.Susceptible(model)`
 
 This component:
+
 - Initializes agents' state to `SUSCEPTIBLE` (code 0)
 - Records the number of susceptible agents per node at each timestep
 - **Does not modify** state on its own—it simply keeps track
 
 No parameters or distributions are required.
 
----
 
 #### `SIR.TransmissionSI(model, infdurdist=...)`
 
 This is the **S → I transition** component:
+
 - Computes **force of infection**:
   $$
   \lambda = \beta \cdot \frac{I}{N}
@@ -155,40 +145,45 @@ from laser.core.distributions import poisson
 infectious_duration = poisson(7.0)
 ```
 
-This means newly infected agents will remain infectious for a random number of days drawn from a **Poisson distribution with mean 7**.
+This means newly infected agents will remain infectious for a random number of days drawn from a Poisson distribution with mean 7.
 
-**Alternative distributions** available in `laser.core.distributions`:
+Alternative distributions available in `laser.core.distributions`:
+
 - `exponential(scale)`
 - `gamma(shape, scale)`
 - `lognormal(mean, sigma)`
 - `constant_int(value)`
 - `custom` (with tick/node-dependent logic)
 
-> You must use a **Numba-compatible function** with signature `(tick: int, node: int) → float/int`
+!!! note
 
----
+     You must use a **Numba-compatible function** with signature `(tick: int, node: int) → float/int`
+
+
 
 #### `SIR.InfectiousIR(model, infdurdist=...)`
 
 This is the **I → R transition** component:
+
 - Decrements each agent's `itimer` (infection timer) every timestep
 - When `itimer == 0`, agent moves to `RECOVERED` state (code 3)
 - Records the number of infectious and recovered agents per node at each timestep
 
 This component **must use the same distribution** (`infdurdist`) as `TransmissionSI`, because it expects that `itimer` was set there.
 
----
+
 
 #### `SIR.Recovered(model)`
 
 This component:
+
 - Tracks the number of recovered agents
 - Propagates `R[t+1] = R[t] + new_recoveries`
 - Does **not** initiate any transitions or timers
 
 No parameters are needed.
 
----
+
 
 #### Full Component Setup
 
@@ -201,9 +196,10 @@ model.components = [
 ]
 ```
 
-> **Order matters** — make sure Susceptible and Recovered components wrap the transition steps.
+!!! note
 
----
+    Order matters: make sure Susceptible and Recovered components wrap the transition steps.
+
 
 #### Optional Enhancements
 
@@ -216,10 +212,7 @@ from laser.generic.importation import Infect_Random_Agents
 model.components.append(Infect_Random_Agents(model))
 ```
 
----
----
-
-### 7. Run Simulation
+### 7. Run the simulation
 
 Run the simulation for the configured number of timesteps.
 
@@ -227,9 +220,8 @@ Run the simulation for the configured number of timesteps.
 model.run()
 ```
 
----
 
-### 8. Extract SIR Time Series
+### 8. Extract SIR time series
 
 Extract patch-level S, I, R results as a Pandas DataFrame.
 
@@ -245,7 +237,6 @@ print(df.head())
 print("Peak infectious:", df["I"].max())
 ```
 
----
 
 ### 9. Save to CSV
 
@@ -256,9 +247,8 @@ df.to_csv("sir_timeseries.csv", index=False)
 print("Saved sir_timeseries.csv")
 ```
 
----
 
-### 10. Plot Results
+### 10. Plot results
 
 Plot the trajectory of S, I, and R over time using `matplotlib`.
 
@@ -277,17 +267,11 @@ plt.title("LASER SIR Example (1 node)")
 plt.show()
 ```
 
----
 
-### Notes
+## Using AI
 
-- This example uses the `laser-generic` components for SIR modeling.
-- Timers (itimer) are automatically assigned using the specified distribution.
-- The `grid()` function defines the spatial layout but is used here with a single node.
+For internal IDM users, you can use a pre-built AI interface, nicknamed [JENNER-GPT](https://chatgpt.com/g/g-67e6b80cd3e88191ae01e058f9df665e-jenner-ic), to create your simulations or ask questions about LASER. It is designed to know everything about LASER and can not only answer your general questions about the system, but also provide working code for components or for entire runnable scripts.
 
-#### Using AI
-
-For internal IDM users, you can use a pre-built AI interface, [JENNER-GPT](https://chatgpt.com/g/g-67e6b80cd3e88191ae01e058f9df665e-jenner-ic) to create your simulations.
 
 <!-- should add some example prompts -->
 

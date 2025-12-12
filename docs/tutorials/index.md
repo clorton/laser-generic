@@ -4,7 +4,7 @@ LASER provides a library of reusable epidemiological components as well as canon
 
 The following code examples and interactive Jupyter notebooks are designed to provide implementation suggestions and to help familiarize users with core LASER functionality. We encourage new users to explore LASER through the notebooks, and challenge them to create new methods for answering similar questions.
 
-The tutorials begin with a simple SIR model, with sample code demonstrating how to configure LASER to implement the `SIRModel` class. As the tutorial progresses, complexity is added to the model including spatial components and human migration.
+The tutorials begin with a simple SIR model, with sample code demonstrating how to configure LASER to implement the `SIRModel` class. As the tutorial progresses, complexity is added to the model including spatial components and human migration. There is an additional example demonstrating how to use census-based tracking in SIR models.
 
 The notebook section contains a suite of interactive notebooks that progress through transmission modes, starting from SI models with no births and sequentially adding additional dynamics to create SIR models with vital dynamics and migration. In addition to the series of notebooks on transmission dynamics, there are notebooks which explore specific LASER features such as births, mortality, and seasonality. We recommend working through the transmission component notebooks prior to the feature notebooks.
 

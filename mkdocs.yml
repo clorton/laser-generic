@@ -32,9 +32,9 @@ theme:
 
 nav: # Navigation structure for the documentation
   - Home: index.md
-  - What's new: whatsnew.md
   - Software overview:
     - software-overview/index.md
+    - software-overview/scenario.md
     - Demographics:
       - software-overview/demographics/index.md
       - software-overview/demographics/age_pyramid.ipynb
@@ -44,12 +44,12 @@ nav: # Navigation structure for the documentation
     - software-overview/transmission.md
   - Get started:
     - get-started/index.md
-    - get-started/initialization.md
     - get-started/calibration.md
     - get-started/optimization.md
   - Tutorials:
     - tutorials/index.md
     - tutorials/sir.md
+    - tutorials/census_tracker_sir.md
     - Notebooks:
       - SI model with no demographics: tutorials/notebooks/01_SI_nobirths_logistic_growth.ipynb # parent topics for sections must be an index.md file
       - SI model with constant population demographics: tutorials/notebooks/02_SI_wbirths_logistic_growth.ipynb
@@ -72,6 +72,8 @@ nav: # Navigation structure for the documentation
       - Seasonality in transmission: tutorials/notebooks/seasonality.ipynb
   - API reference: reference/
   - Contribution guide: contribute.md
+  - What's new: whatsnew.md
+
 
 # icons, semantic markup, emojis
 markdown_extensions:

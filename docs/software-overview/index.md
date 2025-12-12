@@ -23,12 +23,44 @@ LASER's core principles can be summarized as follows:
 <!-- Framework of how laser works: insert diagram! -->
 <!-- should also include explanations of what core is vs generic or other disease models -->
 
-### Input and output files
+### Input files
 
-<!-- All info on the input files and output files. If there are built-in reports, include those. Any type of data requirements should also be included here. Even if it's just that data needs to have a specific structure, include that here.
+All LASER models have two basic input requirements:
 
-Even if there are no "required" files, there still needs to be guidelines on formats, basic information needs, example files, etc. Better to provide some guidelines and let users know they're flexible than to say "anything goes" with out any starting point -->
+1. A scenario DataFrame
+1. A `PropertySet` object
 
+The scenario DataFrame can be created manually or, for simple models, by using the [`grid()` function](../tutorials/notebooks/grid_examples.ipynb). The DataFrame, at a minimum, contains one geographic node with the total population for the node and initial compartment counts for susceptible, exposed, infectious, or recovered individuals, depending on the model type used.
+
+For example,
+
+``` python
+scenario = pd.DataFrame({
+    "x": [0.0],
+    "y": [0.0],
+    "population": [100000],
+    "S": [99990],
+    "I": [10],
+})
+```
+
+The `PropertySet` object contains parameters for the model. These include the number of timesteps to run (`nticks`), the random seed, and beta (the transmission rate per day).
+
+Depending on the model being used, you may also include epidemiological parameters such as an infectious period sampler or latent period sampler, or mobility parameters such as travel probabilities, gravity kernels, or other information necessary for migration between nodes.
+
+For example,
+
+``` python
+params = PropertySet({
+    "nticks": 180,
+    "seed": 42,
+    "beta": 0.05,
+})
+```
+
+All other input data is optional, and includes additional SI/SIR/SEIR components, agent-level property definitions, spatial and network data, and more.
+
+To get started with a simple model, see [Create and run a simulation](../get-started/index.md#build_a_model).
 
 ### Software components
 
