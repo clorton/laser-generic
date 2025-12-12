@@ -3,6 +3,7 @@ import numpy as np
 import geopandas as gpd
 from shapely.geometry import Polygon
 from laser.generic import utils
+from laser.generic.shared import State
 
 
 class DummyModel:
@@ -15,7 +16,7 @@ class DummyModel:
     - Allows testing seeding functions, validation decorators, and other utilities in isolation
 
     STRUCTURE:
-    - DummyModel.Population: Mock population with susceptibility, itimer, nodeid arrays
+    - DummyModel.Population: Mock population with susceptibility, itimer, nodeid arrays (not used)
     - DummyModel.Params: Mock parameters (inf_mean)
     - DummyModel.PRNG: Mock random number generator with fixed seed (42) for reproducibility
 
@@ -41,7 +42,7 @@ class DummyModel:
 
         def __init__(self, count):
             self.count = count
-            self.susceptibility = np.ones(count)
+            self.state = np.zeros(count, dtype=np.int8)
             self.itimer = np.zeros(count)
             self.nodeid = np.arange(count)
 
@@ -83,6 +84,7 @@ class DummyModel:
 
     def __init__(self, count=10):
         self.population = DummyModel.Population(count)
+        self.people = self.population  # got tired of picking one
         self.params = DummyModel.Params()
         self.prng = DummyModel.PRNG()
         self.model = self
@@ -494,152 +496,6 @@ class TestGetCentroids(unittest.TestCase):
         self.assertEqual(centroids.crs.to_epsg(), 4326)
 
 
-class TestSeedingFunctions(unittest.TestCase):
-    """
-    Test suite for infection seeding utilities that initialize epidemic scenarios.
-
-    Seeding functions set initial infected individuals in the population, either
-    randomly, targeted to specific spatial patches, or with controlled immunity levels.
-    These functions are critical for scenario setup at simulation start.
-
-    WHAT IS TESTED:
-    - seed_infections_randomly_SI(): Random seeding for SI models
-    - seed_infections_randomly(): Random seeding with infection timers for SIR/SEIR
-    - seed_infections_in_patch(): Targeted seeding in specific spatial nodes
-    - set_initial_susceptibility_in_patch(): Set immunity levels per-patch
-    - set_initial_susceptibility_randomly(): Set immunity levels population-wide
-    """
-
-    def setUp(self):
-        self.model = DummyModel(10)
-
-    def test_seed_infections_randomly_SI(self):
-        """
-        Validate seed_infections_randomly_SI() seeds infections for SI models.
-
-        SCENARIO SETUP:
-        - Population: 10 individuals (all initially susceptible)
-        - Seed count: 5 infections
-
-        WHAT IS TESTED:
-        - Exactly 5 individuals become infected (susceptibility set to 0.0)
-        - Remaining 5 individuals stay susceptible (susceptibility = 1.0)
-
-        FAILURE MEANING:
-        If this test fails, random seeding for SI models is broken. Too few infections
-        suggest random selection is broken or susceptibility not being updated. Too many
-        suggest replacement=True (same individual selected multiple times) or all individuals
-        being infected. SI models don't use infection timers, only susceptibility, so this
-        test verifies the minimal seeding logic.
-        """
-        utils.seed_infections_randomly_SI(self.model, 5)
-        self.assertEqual(np.sum(self.model.population.susceptibility == 0), 5)
-
-    def test_seed_infections_randomly(self):
-        """
-        Validate seed_infections_randomly() seeds infections with timers for SIR/SEIR models.
-
-        SCENARIO SETUP:
-        - Population: 10 individuals (all initially susceptible)
-        - Seed count: 5 infections
-
-        WHAT IS TESTED:
-        - Function returns array of 5 node IDs (the infected individuals)
-        - Exactly 5 individuals have susceptibility = 0.0 (infected)
-        - All returned node IDs have itimer set to inf_mean (5.0 days)
-        - Infection timers correctly initialized for recovery tracking
-
-        FAILURE MEANING:
-        If this test fails, random seeding for SIR/SEIR models is broken. Missing return
-        values suggest function doesn't return node IDs. Wrong susceptibility count suggests
-        selection or update logic broken. Wrong itimer values mean infection timers aren't
-        being set, which would break recovery timing - infected individuals wouldn't recover
-        properly, causing incorrect epidemic dynamics and attack rates.
-        """
-        nodeids = utils.seed_infections_randomly(self.model, 5)
-        self.assertEqual(len(nodeids), 5)
-        self.assertEqual(np.sum(self.model.population.susceptibility == 0), 5)
-        self.assertTrue(np.all(self.model.population.itimer[nodeids] == self.model.params.inf_mean))
-
-    def test_seed_infections_in_patch(self):
-        """
-        Validate seed_infections_in_patch() targets infections to specific spatial patch.
-
-        SCENARIO SETUP:
-        - Population: 10 individuals across 5 patches (2 individuals per patch)
-        - Patch node IDs: [0, 0, 1, 1, 2, 2, 3, 3, 4, 4]
-        - Target: patch 2, seed 2 infections
-
-        WHAT IS TESTED:
-        - Exactly 2 individuals in patch 2 become infected
-        - Both individuals with nodeid=2 have susceptibility=0.0
-        - Individuals in other patches remain unaffected (susceptibility=1.0)
-
-        FAILURE MEANING:
-        If this test fails, targeted spatial seeding is broken. Infections in wrong patch
-        suggest nodeid filtering isn't working. Wrong count suggests sampling or iteration
-        issues. This function is critical for scenarios like importation events (seeding
-        infections at airports/ports) or outbreak investigation (starting epidemic in
-        specific geographic location). Failure would prevent realistic spatial scenarios.
-        """
-        self.model.population.nodeid = np.array([0, 0, 1, 1, 2, 2, 3, 3, 4, 4])
-        utils.seed_infections_in_patch(self.model, 2, 2)
-        self.assertEqual(np.sum((self.model.population.nodeid == 2) & (self.model.population.susceptibility == 0)), 2)
-
-    def test_set_initial_susceptibility_in_patch(self):
-        """
-        Validate set_initial_susceptibility_in_patch() sets immunity levels per-patch.
-
-        SCENARIO SETUP:
-        - Population: 10 individuals across 5 patches (2 individuals per patch)
-        - Target: patch 3, set susceptibility fraction = 0.5 (50% susceptible)
-        - Expected: 1 of 2 individuals in patch 3 becomes immune (susceptibility=0.0)
-
-        WHAT IS TESTED:
-        - Exactly 1 individual in patch 3 becomes immune
-        - Calculation: 2 individuals × 0.5 susceptibility = 1 immune
-        - Only patch 3 affected, other patches unchanged
-
-        FAILURE MEANING:
-        If this test fails, per-patch immunity initialization is broken. Wrong count suggests
-        fraction calculation or sampling broken (e.g., using floor vs round). Wrong patch
-        suggests nodeid filtering broken. This function is critical for scenarios with
-        spatially heterogeneous prior immunity (e.g., vaccination campaigns that covered
-        some regions but not others). Failure would prevent modeling realistic immunity patterns.
-        """
-        self.model.population.nodeid = np.array([0, 0, 1, 1, 2, 2, 3, 3, 4, 4])
-        utils.set_initial_susceptibility_in_patch(self.model, 3, susc_frac=0.5)
-        patch_inds = np.where(self.model.population.nodeid == 3)[0]
-        immune_count = np.sum(self.model.population.susceptibility[patch_inds] == 0)
-        self.assertEqual(immune_count, 1)
-
-    def test_set_initial_susceptibility_randomly(self):
-        """
-        Validate set_initial_susceptibility_randomly() sets population-wide immunity levels.
-
-        SCENARIO SETUP:
-        - Population: 10 individuals
-        - Target: susceptibility fraction = 0.7 (70% susceptible, 30% immune)
-        - Expected: 3 individuals immune (susceptibility=0.0), 7 susceptible (=1.0)
-
-        WHAT IS TESTED:
-        - Exactly 3 individuals become immune (10 × (1 - 0.7) = 3)
-        - Random selection distributes immunity across population
-        - Calculation: total_pop × (1 - susc_frac) = immune count
-
-        FAILURE MEANING:
-        If this test fails, population-wide immunity initialization is broken. Wrong count
-        suggests fraction calculation error (possibly using susc_frac directly instead of
-        1-susc_frac) or sampling broken. This function is critical for scenarios with prior
-        immunity from previous outbreaks or vaccination campaigns. Failure would prevent
-        modeling realistic population immunity levels, causing incorrect attack rates and
-        epidemic dynamics.
-        """
-        utils.set_initial_susceptibility_randomly(self.model, susc_frac=0.7)
-        immune_count = np.sum(self.model.population.susceptibility == 0)
-        self.assertEqual(immune_count, 3)
-
-
 class TestGetDefaultParameters(unittest.TestCase):
     """
     Test suite for get_default_parameters() function that provides baseline parameter sets.
@@ -678,6 +534,73 @@ class TestGetDefaultParameters(unittest.TestCase):
         self.assertEqual(params["nticks"], 730)
         self.assertEqual(params["beta"], 0.15)
         self.assertEqual(params["verbose"], False)
+
+
+class TestSeedingFunctions(unittest.TestCase):
+    def setUp(self):
+        self.model = DummyModel(10)
+
+    def test_seed_infections_randomly(self):
+        """
+        Test that seed_infections_randomly() correctly infects a specified number of agents
+        across the entire population.
+
+        Test design:
+        - Start with a population of 10 fully susceptible agents.
+        - Request 5 random infections.
+        - Validate that exactly 5 agents transition to INFECTIOUS.
+        - Confirm that their itimers are initialized to the model's inf_mean.
+
+        Pass = The correct number of agents are infected and initialized properly.
+        Fail = Too few/many infected, incorrect states, or incorrect timer values.
+        """
+        nodeids = utils.seed_infections_randomly(self.model, ninfections=5)
+        self.assertEqual(len(nodeids), 5)
+        self.assertEqual(np.sum(self.model.people.state == State.INFECTIOUS.value), 5)
+        self.assertTrue(np.all(self.model.people.itimer[nodeids] == self.model.params.inf_mean))
+
+    def test_seed_infections_in_patch(self):
+        """
+        Test that seed_infections_in_patch() correctly infects a specified number of agents
+        within a single node (patch), using the state array rather than susceptibility.
+
+        Test design:
+        - Use a population of 10 agents assigned to 5 nodes (2 agents per node).
+        - Request 2 infections in node 2 (ipatch=2).
+        - Validate that exactly 2 individuals with nodeid==2 transition to
+          INFECTIOUS state (state == State.INFECTIOUS.value).
+        - Confirm that their itimers are initialized to inf_mean.
+        - Optionally verify that no agents in other nodes become infectious.
+
+        Pass =
+        - Exactly 2 agents in node 2 are marked INFECTIOUS and receive correct timers.
+        - No agents in other nodes are marked INFECTIOUS.
+
+        Fail =
+        - Infections spill to other nodes,
+        - Wrong number of agents in node 2 become infectious,
+        - Or their timers are not initialized to the expected value.
+        """
+        # Arrange: 5 nodes, 2 agents per node
+        self.model.people.nodeid = np.array([0, 0, 1, 1, 2, 2, 3, 3, 4, 4])
+
+        # Act: seed infections only in patch 2
+        utils.seed_infections_in_patch(self.model, ipatch=2, ninfections=2)
+
+        # Agents in node 2 that are INFECTIOUS
+        infected_in_patch = (self.model.people.nodeid == 2) & (self.model.people.state == State.INFECTIOUS.value)
+
+        # Agents in other nodes that are INFECTIOUS (should be none)
+        infected_elsewhere = (self.model.people.nodeid != 2) & (self.model.people.state == State.INFECTIOUS.value)
+
+        # Assert: exactly two infectious in node 2
+        self.assertEqual(np.sum(infected_in_patch), 2)
+
+        # Assert: no infectious agents outside node 2
+        self.assertEqual(np.sum(infected_elsewhere), 0)
+
+        # Assert: their timers are set to inf_mean
+        self.assertTrue(np.all(self.model.people.itimer[infected_in_patch] == self.model.params.inf_mean))
 
 
 if __name__ == "__main__":

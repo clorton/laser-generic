@@ -10,7 +10,9 @@ from typing import ClassVar
 
 import geopandas as gpd
 import numpy as np
+
 from laser.core import PropertySet
+from laser.generic.shared import State
 from pyproj import Transformer
 from shapely.geometry import Point
 
@@ -350,36 +352,6 @@ def get_centroids(gdf: gpd.GeoDataFrame) -> np.ndarray:
 
 
 # Want to think about the ways to seed infections.  Not all infections have a timer!
-def seed_infections_randomly_SI(model: Any, ninfections: int = 100) -> None:
-    """
-    Randomly seed initial infections for SI-style models without using timers.
-
-    This function randomly selects `ninfections` individuals from the population who are currently susceptible
-    and marks them as infected by setting their `susceptibility` to zero. It does not assign any infection timers,
-    making it suitable for simple SI or SIR models where timers are not required.
-
-    Unlike other seeding methods, this function explicitly ensures that only susceptible individuals are infected,
-    even if the total population includes recovered or previously infected agents.
-
-    Args:
-        model: The simulation model, which must contain a `population` with
-               `count` and `susceptibility` attributes, and a PRNG in `model.prng`.
-        ninfections (int, optional): Number of initial infections to seed. Defaults to 100.
-
-    Returns:
-        None
-    """
-    # Seed initial infections in random locations at the start of the simulation
-    cinfections = 0
-    while cinfections < ninfections:
-        index = model.prng.integers(0, model.population.count)
-        if model.population.susceptibility[index] > 0:
-            model.population.susceptibility[index] = 0
-            cinfections += 1
-
-    return
-
-
 def seed_infections_randomly(model: Any, ninfections: int = 100) -> np.ndarray:
     """
     Randomly seed initial infections across the entire population.
@@ -399,15 +371,15 @@ def seed_infections_randomly(model: Any, ninfections: int = 100) -> np.ndarray:
     """
 
     # Seed initial infections in random locations at the start of the simulation
-    pop = model.population
+    pop = model.people
     params = model.params
 
-    myinds = np.flatnonzero(pop.susceptibility)
+    myinds = np.flatnonzero(pop.state == 0)
     if len(myinds) > ninfections:
         myinds = np.random.permutation(myinds)[:ninfections]
 
     pop.itimer[myinds] = params.inf_mean
-    pop.susceptibility[myinds] = 0
+    pop.state[myinds] = State.INFECTIOUS.value
     inf_nodeids = pop.nodeid[myinds]
 
     return inf_nodeids
@@ -416,74 +388,40 @@ def seed_infections_randomly(model: Any, ninfections: int = 100) -> np.ndarray:
 def seed_infections_in_patch(model: Any, ipatch: int, ninfections: int = 1) -> None:
     """
     Seed initial infections in a specific patch of the population at the start of the simulation.
-    This function randomly selects individuals from the specified patch and sets their infection timer
-    to the mean infection duration, effectively marking them as infected. The process continues until
-    the desired number of initial infections is reached.
+
+    This function randomly selects up to `ninfections` individuals from the specified patch
+    who are currently susceptible (state == State.SUSCEPTIBLE) and marks them as infected by:
+      - Setting their infection timer (`itimer`) to the model's mean infectious duration (`inf_mean`),
+      - Setting their infection `state` to State.INFECTIOUS.
 
     Args:
-        model: The simulation model containing the population and parameters.
+        model: The simulation model containing the population and parameters. It must expose:
+               - model.people.state (integer infection state),
+               - model.people.itimer (infection timers),
+               - model.people.nodeid (patch index),
+               - model.params.inf_mean (mean infectious period).
         ipatch (int): The identifier of the patch where infections should be seeded.
-        ninfections (int, optional): The number of initial infections to seed. Defaults to 100.
+        ninfections (int, optional): The number of initial infections to seed. Defaults to 1.
 
     Returns:
         None
     """
+    pop = model.people
 
-    # Seed initial infections in a specific location at the start of the simulation
-    myinds = np.where((model.population.susceptibility > 0) & (model.population.nodeid == ipatch))[0]
-    if len(myinds) > ninfections:
-        myinds = np.random.choice(myinds, ninfections, replace=False)
-    model.population.itimer[myinds] = model.params.inf_mean
-    model.population.susceptibility[myinds] = 0
+    # Candidates: susceptible individuals in the target patch
+    susceptible_in_patch = np.where((pop.state == State.SUSCEPTIBLE.value) & (pop.nodeid == ipatch))[0]
 
-    return
+    if len(susceptible_in_patch) == 0:
+        # Nothing to do: no susceptibles in this patch
+        return
 
+    # If there are more candidates than requested infections, sample without replacement
+    if len(susceptible_in_patch) > ninfections:
+        susceptible_in_patch = np.random.choice(susceptible_in_patch, ninfections, replace=False)
 
-def set_initial_susceptibility_in_patch(model: Any, ipatch: int, susc_frac: float = 1.0) -> None:
-    """
-    Randomly assign susceptibility levels to individuals in a specific patch at the start of the simulation.
-
-    This function sets a random fraction of individuals in the specified patch to be fully immune
-    (susceptibility = 0), based on the given `susc_frac` value. The remaining individuals retain their
-    default susceptibility.
-
-    Args:
-        model: The simulation model, which must contain a `population` object with
-               `susceptibility`, `nodeid`, and `count` attributes.
-        ipatch (int): The index of the patch in which to set susceptibility.
-        susc_frac (float, optional): The fraction (0.0 to 1.0) of individuals in the patch
-                                     to remain susceptible. Defaults to 1.0 (i.e., all remain susceptible).
-
-    Returns:
-        None
-    """
-    # Seed initial infections in random locations at the start of the simulation
-    indices = np.squeeze(np.where(model.population.nodeid == ipatch))
-    patch_indices = model.prng.choice(indices, int(len(indices) * (1 - susc_frac)), replace=False)
-    model.population.susceptibility[patch_indices] = 0
-
-    return
-
-
-def set_initial_susceptibility_randomly(model: Any, susc_frac: float = 1.0) -> None:
-    """
-    Randomly assign susceptibility levels to individuals in the population at the start of the simulation.
-
-    This function sets a random fraction of the population to be fully immune (susceptibility = 0),
-    based on the given `susc_frac` value. The rest retain their default susceptibility (typically 1.0).
-
-    Args:
-        model: The simulation model containing the population and parameters. The model must have
-               a `population` object with a `susceptibility` attribute and a `count` attribute.
-        susc_frac (float, optional): The fraction (0.0 to 1.0) of the population to remain susceptible.
-                                     Defaults to 1.0 (i.e., no initial immunity).
-
-    Returns:
-        None
-    """
-    # Seed initial infections in random locations at the start of the simulation
-    indices = model.prng.choice(model.population.count, int(model.population.count * (1 - susc_frac)), replace=False)
-    model.population.susceptibility[indices] = 0
+    # Set timers and mark as infectious
+    pop.itimer[susceptible_in_patch] = model.params.inf_mean
+    pop.state[susceptible_in_patch] = State.INFECTIOUS.value
 
     return
 
