@@ -26,14 +26,10 @@ jobs:
           python-version: 3.13
 
       - name: Install build tools
-        run: python -m pip install -U pip build pytest cibuildwheel
+        run: python -m pip install uv
 
       - name: Build wheels
-        run: python -m cibuildwheel --output-dir dist
-        env:
-          CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
-          CIBW_ARCHS_MACOS: "x86_64 arm64"
-          CIBW_SKIP: "*-musllinux_*"
+        run: uv build
 
       - name: Upload wheels as artifact
         uses: actions/upload-artifact@v4
