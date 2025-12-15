@@ -67,7 +67,7 @@ def read(*names, **kwargs):
 
 setup(
     # name="laser-generic",
-    # version="0.0.0",
+    # version="0.1.0",
     # license="MIT",
     # description="Generic disease models implented with the LASER framework.",
     long_description="{}\n{}".format(
